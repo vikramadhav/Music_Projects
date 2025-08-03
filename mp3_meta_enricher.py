@@ -1,19 +1,3 @@
-"""
-mp3_meta_enricher.py
--------------------
-A utility for enriching MP3 files with metadata. It walks through a given directory, cleans filenames, fetches metadata from YouTube and Google, and attaches it to MP3 files using ID3 tags. It also avoids duplicate processing and logs all actions.
-
-Classes:
-    MP3MetaEnricher: Main class for processing and enriching MP3 files.
-
-Usage:
-    python mp3_meta_enricher.py <music_dir>
-
-Environment Variables:
-    GOOGLE_API_KEY: Google Custom Search API key for metadata fallback.
-    GOOGLE_CSE_ID: Google Custom Search Engine ID for metadata fallback.
-"""
-
 import os
 import re
 import json
@@ -38,56 +22,23 @@ console.setFormatter(formatter)
 logging.getLogger('').addHandler(console)
 
 class MP3MetaEnricher:
-    """
-    Enriches MP3 files in a directory with metadata.
-
-    Attributes:
-        music_dir (str): Path to the directory containing MP3 files.
-        processed_log (str): Path to the log file for processed files.
-        processed (set): Set of processed file paths.
-        translator (Translator): Google Translator instance for filename cleaning.
-    """
     def __init__(self, music_dir, processed_log='processed_files.json'):
-        """
-        Initializes the MP3MetaEnricher.
-
-        Args:
-            music_dir (str): Directory containing MP3 files.
-            processed_log (str): Log file for processed files.
-        """
         self.music_dir = music_dir
         self.processed_log = processed_log
         self.processed = self.load_processed()
         self.translator = Translator()
 
     def load_processed(self):
-        """
-        Loads the set of processed files from the log.
-
-        Returns:
-            set: Set of processed file paths.
-        """
         if os.path.exists(self.processed_log):
             with open(self.processed_log, 'r') as f:
                 return set(json.load(f))
         return set()
 
     def save_processed(self):
-        """
-        Saves the set of processed files to the log.
-        """
         with open(self.processed_log, 'w') as f:
             json.dump(list(self.processed), f)
 
     def clean_filename(self, filename):
-        """
-        Cleans the filename by removing special symbols, numbers, and non-English words. Translates non-English to English.
-
-        Args:
-            filename (str): The original filename.
-        Returns:
-            str: The cleaned filename.
-        """
         # Remove special symbols, numbers, and non-English words, translate if needed
         name, ext = os.path.splitext(filename)
         # Remove special symbols and numbers
@@ -104,12 +55,8 @@ class MP3MetaEnricher:
 
     def fetch_metadata(self, filename):
         """
-        Fetches metadata for an MP3 file using YouTube and Google as fallback.
-
-        Args:
-            filename (str): The filename to search for.
-        Returns:
-            dict or None: Metadata dictionary if found, else None.
+        Try to fetch metadata for an mp3 file using YouTube and Google search as fallback.
+        Returns a dict with 'artist', 'genre', 'title', 'album', 'date', 'tracknumber', 'composer', 'albumartist', 'discnumber', 'length', 'comment' if found, else None.
         """
         logging.info(f"Attempting to fetch metadata for {filename}")
         # Try YouTube search via yt-dlp (title only, no download)
@@ -195,14 +142,6 @@ class MP3MetaEnricher:
         return None
 
     def enrich_file(self, filepath):
-        """
-        Enriches an MP3 file with metadata if missing.
-
-        Args:
-            filepath (str): Path to the MP3 file.
-        Returns:
-            bool: True if metadata was added, False otherwise.
-        """
         try:
             audio = MP3(filepath, ID3=EasyID3)
             # Common ID3 tags
@@ -225,9 +164,6 @@ class MP3MetaEnricher:
         return False
 
     def process(self):
-        """
-        Walks through the music directory, cleans filenames, enriches metadata, and logs processed files.
-        """
         for root, _, files in os.walk(self.music_dir):
             for file in files:
                 if not file.lower().endswith('.mp3'):
