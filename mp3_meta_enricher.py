@@ -25,7 +25,17 @@ import requests
 from googletrans import Translator
 
 # Setup logging
-logging.basicConfig(filename='mp3_metadata.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    filename='mp3_metadata.log',
+    filemode='a'
+)
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+console.setFormatter(formatter)
+logging.getLogger('').addHandler(console)
 
 class MP3MetaEnricher:
     """
@@ -169,8 +179,7 @@ class MP3MetaEnricher:
                             title = title_match.group(1)
                         meta = {
                             'artist': artist,
-                            'title': title or os.path.splitext(filename)[0],
-                            'comment': snippet
+                            'title': title or os.path.splitext(filename)[0]
                         }
                         logging.info(f"Fetched from Google: {meta}")
                         meta = {k: v for k, v in meta.items() if v}
@@ -229,6 +238,9 @@ class MP3MetaEnricher:
                 cleaned = self.clean_filename(file)
                 if cleaned != file:
                     new_path = os.path.join(root, cleaned)
+                    if os.path.exists(new_path):
+                        os.remove(new_path)  # Remove the existing file before renaming
+                        logging.info(f"Removed existing file {new_path} to allow renaming.")
                     os.rename(full_path, new_path)
                     full_path = new_path
                 if self.enrich_file(full_path):
