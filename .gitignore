@@ -207,3 +207,4 @@ bin/
 share/
 .vscode
 pyvenv.cfg
+Scripts/
