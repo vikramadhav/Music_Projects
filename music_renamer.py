@@ -145,6 +145,7 @@ def get_music_details_from_youtube(query):
 def process_music_file(filepath, base_music_folder):
     """
     Processes a single music file: checks if it needs renaming, searches YouTube, and renames/moves if necessary.
+    If the filename is sensible but not in the correct genre folder, move it.
     """
     thread_name = threading.current_thread().name
     filename = os.path.basename(filepath)
@@ -152,9 +153,28 @@ def process_music_file(filepath, base_music_folder):
 
     logging.info(f"[{thread_name}] Processing file: {filename}")
 
+    youtube_info = None
     if is_sensible_filename(name_without_ext):
-        logging.info(f"[{thread_name}] Skipping '{filename}' - filename already seems sensible.")
-        return f"Skipped '{filename}' (sensible name)"
+        logging.info(f"[{thread_name}] Filename '{filename}' is sensible. Checking folder placement...")
+        # Determine genre and create target directory
+        genre_folder_name = determine_genre(get_music_details_from_youtube(name_without_ext))
+        target_genre_path = os.path.join(base_music_folder, genre_folder_name)
+        os.makedirs(target_genre_path, exist_ok=True)
+        new_filepath = os.path.join(target_genre_path, filename)
+        if filepath != new_filepath:
+            if os.path.exists(new_filepath):
+                logging.warning(f"[{thread_name}] Target file '{filename}' already exists in correct folder. Skipping move.")
+                return f"Skipped '{filename}' (target exists in folder)"
+            try:
+                shutil.move(filepath, new_filepath)
+                logging.info(f"[{thread_name}] Moved '{filename}' to '{new_filepath}'")
+                return f"Moved '{filename}' to '{new_filepath}'"
+            except Exception as e:
+                logging.error(f"[{thread_name}] Error moving '{filename}' to '{new_filepath}': {e}")
+                return f"Failed to move '{filename}' (Error: {e})"
+        else:
+            logging.info(f"[{thread_name}] '{filename}' is already in correct genre folder.")
+            return f"No change for '{filename}'"
 
     logging.debug(f"[{thread_name}] Searching YouTube for '{name_without_ext}'...")
     youtube_info = get_music_details_from_youtube(name_without_ext)
@@ -174,10 +194,10 @@ def process_music_file(filepath, base_music_folder):
     # Determine genre and create target directory
     genre_folder_name = determine_genre(youtube_info)
     target_genre_path = os.path.join(base_music_folder, genre_folder_name)
-    os.makedirs(target_genre_path, exist_ok=True) # Ensure genre folder exists
+    os.makedirs(target_genre_path, exist_ok=True)
 
     new_filename = f"{sanitized_new_title}{ext}"
-    new_filepath = os.path.join(target_genre_path, new_filename) # New path includes genre folder
+    new_filepath = os.path.join(target_genre_path, new_filename)
 
     if filepath == new_filepath:
         logging.info(f"[{thread_name}] Filename '{filename}' is already optimal and in correct genre folder. No rename/move needed.")
@@ -188,10 +208,10 @@ def process_music_file(filepath, base_music_folder):
         return f"Skipped '{filename}' (target exists)"
 
     try:
-        shutil.move(filepath, new_filepath) # Use shutil.move for robustness
+        shutil.move(filepath, new_filepath)
         logging.info(f"[{thread_name}] Renamed and moved '{filename}' to '{new_filepath}'")
         return f"Renamed and moved '{filename}' to '{new_filepath}'"
-    except Exception as e: # Catch broader exceptions for moving
+    except Exception as e:
         logging.error(f"[{thread_name}] Error renaming/moving '{filename}' to '{new_filepath}': {e}")
         return f"Failed to rename/move '{filename}' (Error: {e})"
 
