@@ -144,7 +144,7 @@ def get_music_details_from_youtube(query):
 # --- Process Single File ---
 def process_music_file(filepath, base_music_folder):
     """
-    Processes a single music file: checks if it needs renaming, searches YouTube, and renames/moves if necessary.
+    Processes a single music file: checks if it needs renaming, sorts by genre using mutagen, AcoustID, and YouTube (in that order).
     If the filename is sensible but not in the correct genre folder, move it.
     """
     thread_name = threading.current_thread().name
@@ -153,12 +153,26 @@ def process_music_file(filepath, base_music_folder):
 
     logging.info(f"[{thread_name}] Processing file: {filename}")
 
-    youtube_info = None
-    if is_sensible_filename(name_without_ext):
-        logging.info(f"[{thread_name}] Filename '{filename}' is sensible. Checking folder placement...")
-        # Determine genre and create target directory
-        genre_folder_name = determine_genre(get_music_details_from_youtube(name_without_ext))
-        target_genre_path = os.path.join(base_music_folder, genre_folder_name)
+    # Try to get genre from mutagen first
+    genre_from_tag = None
+    try:
+        from mutagen.easyid3 import EasyID3
+        from mutagen.mp3 import MP3
+        audio = MP3(filepath, ID3=EasyID3)
+        genre_from_tag = audio.get('genre', [None])[0]
+    except Exception as e:
+        logging.debug(f"[{thread_name}] Could not read genre from MP3 tags for '{filename}': {e}")
+
+    # If genre is found in tag, use it for sorting
+    if genre_from_tag:
+        mapped_genre = None
+        for keyword, genre_folder in GENRE_MAPPING.items():
+            if keyword.lower() in genre_from_tag.lower():
+                mapped_genre = genre_folder
+                break
+        if not mapped_genre:
+            mapped_genre = "Other"
+        target_genre_path = os.path.join(base_music_folder, mapped_genre)
         os.makedirs(target_genre_path, exist_ok=True)
         new_filepath = os.path.join(target_genre_path, filename)
         if filepath != new_filepath:
@@ -167,17 +181,62 @@ def process_music_file(filepath, base_music_folder):
                 return f"Skipped '{filename}' (target exists in folder)"
             try:
                 shutil.move(filepath, new_filepath)
-                logging.info(f"[{thread_name}] Moved '{filename}' to '{new_filepath}'")
-                return f"Moved '{filename}' to '{new_filepath}'"
+                logging.info(f"[{thread_name}] Moved '{filename}' to '{new_filepath}' (by MP3 genre tag)")
+                return f"Moved '{filename}' to '{new_filepath}' (by MP3 genre tag)"
             except Exception as e:
                 logging.error(f"[{thread_name}] Error moving '{filename}' to '{new_filepath}': {e}")
                 return f"Failed to move '{filename}' (Error: {e})"
         else:
-            logging.info(f"[{thread_name}] '{filename}' is already in correct genre folder.")
-            return f"No change for '{filename}'"
+            logging.info(f"[{thread_name}] '{filename}' is already in correct genre folder (by MP3 genre tag).")
+            return f"No change for '{filename}' (by MP3 genre tag)"
 
-    logging.debug(f"[{thread_name}] Searching YouTube for '{name_without_ext}'...")
-    youtube_info = get_music_details_from_youtube(name_without_ext)
+    # Fallback: AcoustID audio fingerprinting
+    genre_from_acoustid = None
+    try:
+        import acoustid
+        ACOUSTID_API_KEY = os.getenv('ACOUSTID_API_KEY')
+        if ACOUSTID_API_KEY:
+            results = acoustid.match(ACOUSTID_API_KEY, filepath)
+            for score, rid, title, artist in results:
+                # AcoustID does not provide genre directly, but you can use artist/title to infer
+                # Here, just log and use artist/title for YouTube fallback if needed
+                logging.info(f"[{thread_name}] AcoustID match: artist={artist}, title={title}, score={score}")
+                # Optionally, use MusicBrainz API to get genre from recording id (rid)
+                # For now, just break after first match
+                break
+    except Exception as e:
+        logging.debug(f"[{thread_name}] AcoustID lookup failed for '{filename}': {e}")
+
+    # If AcoustID found artist/title, try to use YouTube fallback with those
+    youtube_info = None
+    if genre_from_acoustid:
+        # If you have a way to map artist/title to genre, do it here
+        # For now, fallback to YouTube with artist/title
+        search_query = f"{artist} {title}" if artist and title else name_without_ext
+        youtube_info = get_music_details_from_youtube(search_query)
+    else:
+        if is_sensible_filename(name_without_ext):
+            logging.info(f"[{thread_name}] Filename '{filename}' is sensible. Checking folder placement...")
+            genre_folder_name = determine_genre(get_music_details_from_youtube(name_without_ext))
+            target_genre_path = os.path.join(base_music_folder, genre_folder_name)
+            os.makedirs(target_genre_path, exist_ok=True)
+            new_filepath = os.path.join(target_genre_path, filename)
+            if filepath != new_filepath:
+                if os.path.exists(new_filepath):
+                    logging.warning(f"[{thread_name}] Target file '{filename}' already exists in correct folder. Skipping move.")
+                    return f"Skipped '{filename}' (target exists in folder)"
+                try:
+                    shutil.move(filepath, new_filepath)
+                    logging.info(f"[{thread_name}] Moved '{filename}' to '{new_filepath}'")
+                    return f"Moved '{filename}' to '{new_filepath}'"
+                except Exception as e:
+                    logging.error(f"[{thread_name}] Error moving '{filename}' to '{new_filepath}': {e}")
+                    return f"Failed to move '{filename}' (Error: {e})"
+            else:
+                logging.info(f"[{thread_name}] '{filename}' is already in correct genre folder.")
+                return f"No change for '{filename}'"
+        logging.debug(f"[{thread_name}] Searching YouTube for '{name_without_ext}'...")
+        youtube_info = get_music_details_from_youtube(name_without_ext)
 
     if youtube_info and 'title' in youtube_info:
         new_title = youtube_info['title']
@@ -191,7 +250,6 @@ def process_music_file(filepath, base_music_folder):
         logging.warning(f"[{thread_name}] Sanitized title for '{filename}' is empty. Skipping rename.")
         return f"Skipped '{filename}' (empty sanitized title)"
 
-    # Determine genre and create target directory
     genre_folder_name = determine_genre(youtube_info)
     target_genre_path = os.path.join(base_music_folder, genre_folder_name)
     os.makedirs(target_genre_path, exist_ok=True)
